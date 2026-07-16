@@ -1,116 +1,88 @@
 import streamlit as st
 import google.generativeai as genai
-from weasyprint import HTML
-import json
-import datetime
 from PIL import Image
-from io import BytesIO
-import os
 
-# Seitenkonfiguration (Mobile Friendly)
-st.set_page_config(page_title="Arbeitszeitnachweis App", page_icon="📝", layout="centered")
+# Seitenkonfiguration (muss ganz oben stehen)
+st.set_page_config(page_title="Arbeitszeit & Berichte", page_icon="📝", layout="centered")
 
-# API Key aus den Streamlit Secrets laden
-API_KEY = st.secrets.get("GEMINI_API_KEY")
-if not API_KEY:
-    st.error("Bitte GEMINI_API_KEY in den Streamlit Secrets hinterlegen.")
-    st.stop()
-
+# API Key laden
+API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=API_KEY)
 
-# Das Gemini-Modell initialisieren
-model = genai.GenerativeModel('gemini-1.5-flash')
+# Zwischenspeicher für Kamera-Fotos initialisieren
+if 'kamera_bilder' not in st.session_state:
+    st.session_state.kamera_bilder = []
 
 st.title("📝 Wochenübersicht & Berichte")
-st.write("Lade hier die Fotos deines Kalenders hoch.")
+st.write("Erfasse hier deine handschriftlichen Kalendereinträge.")
 
-# Datei-Uploader für Bilder (unterstützt auf dem Handy direkten Zugriff auf die Kamera/Galerie)
-uploaded_files = st.file_uploader("Kalenderbilder auswählen", accept_multiple_files=True, type=["jpg", "jpeg", "png"])
-# Direkte Kamera-Integration
-camera_photo = st.camera_input("Oder: Foto direkt hier aufnehmen")
+# --- BEREICH 1: Upload aus der Galerie ---
+st.subheader("1. Fotos aus der Galerie hochladen")
+uploaded_files = st.file_uploader("Wähle bereits gemachte Bilder aus...", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
 
-if camera_photo is not None:
-    # Fügt das aufgenommene Foto direkt zur Liste der zu verarbeitenden Bilder hinzu
-    if uploaded_files is None:
-        uploaded_files = []
-    uploaded_files.append(camera_photo)
+# --- BEREICH 2: Serien-Aufnahme mit der Kamera ---
+st.subheader("2. Bilder nacheinander aufnehmen")
+st.info("Klicke nach jedem Foto auf den grünen Button, um es abzuspeichern, bevor du das nächste knipst!")
 
-if uploaded_files and st.button("📄 Nachweise generieren"):
-    with st.spinner("Bilder werden analysiert und PDFs generiert... Bitte warten."):
-        
-        # Bilder für die API vorbereiten
-        images = []
-        for file in uploaded_files:
-            img = Image.open(file)
-            images.append(img)
-        
-        # Heutiges Datum für die Unterschrift
-        heute_str = datetime.datetime.now().strftime("%d.%m.%Y")
-        
-        # Der System-Prompt mit all deinen Vorgaben
-        prompt = f"""
-        Du bist ein Assistent zur Erstellung von Arbeitszeitnachweisen.
-        Analysiere die hochgeladenen Kalender-Bilder und erstelle folgende Dokumente im HTML-Format:
-        
-        1. Eine Wochenübersicht (immer exakt passend auf 1 DIN-A4-Seite).
-        2. Separate Arbeitsberichte für jede Tätigkeit, die NICHTS mit Müll zu tun hat (Gartenarbeit, Reparaturen, etc.).
-        
-        Regeln für die Inhalte:
-        - Name: Dirk Stunnenberg-Verhoeven
-        - Unterschriftenfeld unten: "Kranenburg, den {heute_str}" und "Unterschrift (Dirk Stunnenberg-Verhoeven)".
-        - Vereinbarte Wochenstunden: 20 Stunden (nur in der Wochenübersicht oben rechts).
-        - Formatierung Müll: Ignoriere Farben (Grau, Bio etc.). Schreibe IMMER "[Stadt] Mülltonnen Bereitstellung".
-        - Fasse Müll-Einträge pro Tag zusammen (z.B. "Müll (X Std): Kalkar Mülltonnen Bereitstellung; Goch Mülltonnen Bereitstellung").
-        
-        GIB AUSSCHLIESSLICH EIN VALIDES JSON ZURÜCK, das exakt dieses Format hat:
-        [
-            {{
-                "filename": "Arbeitszeitnachweis_KWXX.pdf",
-                "html": "<!DOCTYPE html><html>...HTML Code...</html>"
-            }},
-            {{
-                "filename": "Arbeitsbericht_...pdf",
-                "html": "<!DOCTYPE html><html>...HTML Code...</html>"
-            }}
-        ]
-        
-        Verwende für das HTML einfaches, sauberes CSS, das auf A4 optimiert ist (wie in unseren bisherigen Vorlagen).
-        Antworte NUR mit dem JSON Code-Block, keinem anderen Text.
-        """
-        
-        try:
-            # Anfrage an die API senden (Prompt + Bilder)
-            response = model.generate_content([prompt] + images)
-            
-            # JSON aus der Antwort extrahieren
-            response_text = response.text.strip()
-            if response_text.startswith("```json"):
-                response_text = response_text[7:-3] # Markdown-Formatierung entfernen
-                
-            documents = json.loads(response_text)
-            
-            st.success("✅ Generierung erfolgreich! Hier sind deine PDFs:")
-            
-            # Für jedes Dokument im JSON ein PDF erstellen und einen Download-Button anzeigen
-            for doc in documents:
-                filename = doc.get("filename", "Dokument.pdf")
-                html_content = doc.get("html", "")
-                
-                # HTML zu PDF im Arbeitsspeicher umwandeln
-                pdf_buffer = BytesIO()
-                HTML(string=html_content).write_pdf(pdf_buffer)
-                pdf_bytes = pdf_buffer.getvalue()
-                
-                # Download Button
-                st.download_button(
-                    label=f"📥 {filename} herunterladen",
-                    data=pdf_bytes,
-                    file_name=filename,
-                    mime="application/pdf"
-                )
-                
-        except Exception as e:
-            st.error(f"Fehler bei der Verarbeitung: {e}")
+kamera_foto = st.camera_input("Kalender abfotografieren")
+
+if kamera_foto is not None:
+    if st.button("📸 Dieses Foto speichern & nächstes vorbereiten", type="primary"):
+        st.session_state.kamera_bilder.append(kamera_foto)
+        st.rerun()
+
+# Anzeige der gespeicherten Kamera-Fotos
+if st.session_state.kamera_bilder:
+    st.success(f"Erfolgreich zwischengespeicherte Kamera-Fotos: {len(st.session_state.kamera_bilder)}")
+    if st.button("🗑️ Zwischenspeicher leeren"):
+        st.session_state.kamera_bilder = []
+        st.rerun()
 
 st.divider()
-st.caption("📱 Tipp: Füge diese Seite im Browser zu deinem Home-Bildschirm hinzu, um sie wie eine native App zu nutzen.")
+
+# Alle Bilder sammeln
+alle_bilder = []
+if uploaded_files:
+    alle_bilder.extend(uploaded_files)
+if st.session_state.kamera_bilder:
+    alle_bilder.extend(st.session_state.kamera_bilder)
+
+# --- BEREICH 3: Verarbeitung ---
+if st.button("📄 Nachweise generieren"):
+    if not alle_bilder:
+        st.warning("Bitte füge zuerst Bilder (Kamera oder Upload) hinzu!")
+    else:
+        with st.spinner("Bilder werden optimiert und analysiert (das kann einen Moment dauern)..."):
+            try:
+                # BILDER KOMPRIMIEREN (Verhindert Abstürze durch zu große Dateien)
+                verarbeitete_bilder = []
+                for img_file in alle_bilder:
+                    img = Image.open(img_file)
+                    img.thumbnail((1200, 1200)) # Verkleinert das Bild auf ein sicheres Maß
+                    verarbeitete_bilder.append(img)
+                
+                # ROBUSTE MODELL-ABFRAGE (verhindert den 404 Fehler)
+                antwort = None
+                letzter_fehler = ""
+                modelle = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-latest']
+                
+                for modell_name in modelle:
+                    try:
+                        model = genai.GenerativeModel(modell_name)
+                        antwort = model.generate_content(
+                            ["Bitte lies diese handschriftlichen Kalendereinträge aus. Erstelle eine strukturierte Zusammenfassung der dokumentierten Arbeitszeiten und Tätigkeiten.", *verarbeitete_bilder]
+                        )
+                        break # Wenn erfolgreich, Schleife abbrechen
+                    except Exception as e:
+                        letzter_fehler = str(e)
+                        continue # Wenn Fehler, nächstes Modell probieren
+                
+                if antwort:
+                    st.success("Verarbeitung erfolgreich!")
+                    st.write(antwort.text)
+                else:
+                    st.error("Alle Modelle haben einen Fehler gemeldet. Details:")
+                    st.error(letzter_fehler)
+                    
+            except Exception as e:
+                st.error(f"Genereller Fehler: {e}")
