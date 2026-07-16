@@ -41,7 +41,8 @@ if st.button("📄 Nachweise generieren"):
                     verarbeitete_bilder.append(img)
                 
                 # WIR NUTZEN JETZT EXAKT DEIN NEUES MODELL!
-                model = genai.GenerativeModel('gemini-2.5-flash')
+                model = genai.GenerativeModel('gemini-2.0-flash')
+            
                 antwort = model.generate_content(
                     ["Bitte lies diese handschriftlichen Kalendereinträge aus. Erstelle eine strukturierte Zusammenfassung der Arbeitszeiten.", *verarbeitete_bilder]
                 )
