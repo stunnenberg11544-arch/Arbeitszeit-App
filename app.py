@@ -19,7 +19,7 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 
 # Das Gemini-Modell initialisieren
-model = genai.GenerativeModel('gemini-1.5-pro-latest')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 st.title("📝 Wochenübersicht & Berichte")
 st.write("Lade hier die Fotos deines Kalenders hoch.")
