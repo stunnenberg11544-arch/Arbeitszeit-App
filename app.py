@@ -32,23 +32,52 @@ if st.button("📄 Nachweise generieren"):
     if not st.session_state.kamera_bilder:
         st.warning("Bitte knipse zuerst ein Foto!")
     else:
-        with st.spinner("Lese Handschrift (bitte warten)..."):
+        with st.spinner("Lese Handschrift..."):
             try:
-                # Bilder verkleinern gegen Abstürze
+                # Bilder verkleinern
                 verarbeitete_bilder = []
                 for img_file in st.session_state.kamera_bilder:
                     img = Image.open(img_file)
                     img.thumbnail((1200, 1200)) 
                     verarbeitete_bilder.append(img)
                 
-                # Das korrekte, neuste Modell fest ansteuern
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                antwort = model.generate_content(
-                    ["Bitte lies diese handschriftlichen Kalendereinträge aus. Erstelle eine strukturierte Zusammenfassung der Arbeitszeiten.", *verarbeitete_bilder]
-                )
+                # ALLE erlaubten Modelle deines Schlüssels abfragen
+                verfuegbare_modelle = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                 
-                st.success("Erfolgreich ausgewertet!")
-                st.write(antwort.text)
+                # Automatisches Aussuchen des besten Modells
+                ziel_modell = None
+                
+                # 1. Priorität: Das schnelle 1.5 Flash Modell
+                for m in verfuegbare_modelle:
+                    if "1.5-flash" in m:
+                        ziel_modell = m
+                        break
+                        
+                # 2. Priorität: Das große 1.5 Pro Modell
+                if not ziel_modell:
+                    for m in verfuegbare_modelle:
+                        if "1.5-pro" in m:
+                            ziel_modell = m
+                            break
+                            
+                # 3. Priorität: Das alte Vision Modell als Notnagel
+                if not ziel_modell:
+                    for m in verfuegbare_modelle:
+                        if "vision" in m:
+                            ziel_modell = m
+                            break
+                
+                if ziel_modell:
+                    st.info(f"System-Info: Nutze Modell '{ziel_modell}'")
+                    model = genai.GenerativeModel(ziel_modell)
+                    antwort = model.generate_content(
+                        ["Bitte lies diese handschriftlichen Kalendereinträge aus. Erstelle eine strukturierte Zusammenfassung der Arbeitszeiten.", *verarbeitete_bilder]
+                    )
+                    st.success("Erfolgreich ausgewertet!")
+                    st.write(antwort.text)
+                else:
+                    st.error("Dein API-Schlüssel hat leider keine Berechtigung für Bild-Modelle.")
+                    st.write("Verfügbare Modelle laut Schlüssel:", verfuegbare_modelle)
                     
             except Exception as e:
                 st.error(f"Fehler: {e}")
