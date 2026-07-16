@@ -26,6 +26,14 @@ st.write("Lade hier die Fotos deines Kalenders hoch.")
 
 # Datei-Uploader für Bilder (unterstützt auf dem Handy direkten Zugriff auf die Kamera/Galerie)
 uploaded_files = st.file_uploader("Kalenderbilder auswählen", accept_multiple_files=True, type=["jpg", "jpeg", "png"])
+# Direkte Kamera-Integration
+camera_photo = st.camera_input("Oder: Foto direkt hier aufnehmen")
+
+if camera_photo is not None:
+    # Fügt das aufgenommene Foto direkt zur Liste der zu verarbeitenden Bilder hinzu
+    if uploaded_files is None:
+        uploaded_files = []
+    uploaded_files.append(camera_photo)
 
 if uploaded_files and st.button("📄 Nachweise generieren"):
     with st.spinner("Bilder werden analysiert und PDFs generiert... Bitte warten."):
