@@ -2,6 +2,26 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
+modelle = ['gemini-3-flash', 'gemini-3.1-flash-lite']
+antwort = None
+fehler_liste = []
+
+for m_name in modelle:
+    try:
+        model = genai.GenerativeModel(m_name)
+        antwort = model.generate_content(["Lies diese Arbeitszeiten aus.", *imgs])
+        break
+    except Exception as e:
+        fehler_liste.append(f"{m_name}: {e}")
+        continue
+
+if antwort:
+    st.write(antwort.text)
+else:
+    st.error("Kein Modell hat funktioniert. Details:")
+    for f in fehler_liste:
+        st.code(f)
+
 st.set_page_config(page_title="Arbeitszeit & Berichte", page_icon="📝")
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
