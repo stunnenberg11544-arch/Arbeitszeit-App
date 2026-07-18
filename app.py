@@ -9,7 +9,8 @@ from datetime import date
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                 Paragraph, Spacer, PageBreak)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 st.set_page_config(page_title="Arbeitszeit & Berichte", page_icon="📝")
@@ -19,14 +20,19 @@ if 'kamera_bilder' not in st.session_state:
     st.session_state.kamera_bilder = []
 if 'pdf_bytes' not in st.session_state:
     st.session_state.pdf_bytes = None
+if 'cam_key' not in st.session_state:
+    st.session_state.cam_key = 0
 
 st.title("📝 Wochenübersicht")
-kamera_foto = st.camera_input("Kalender abfotografieren")
 
+kamera_foto = st.camera_input("Kalender abfotografieren", key=f"cam_{st.session_state.cam_key}")
+
+# Foto wird sofort nach der Aufnahme gespeichert, das Kamera-Feld wird danach
+# durch einen neuen Widget-Key automatisch geleert (kein Klick nötig).
 if kamera_foto is not None:
-    if st.button("📸 Speichern"):
-        st.session_state.kamera_bilder.append(kamera_foto)
-        st.rerun()
+    st.session_state.kamera_bilder.append(kamera_foto)
+    st.session_state.cam_key += 1
+    st.rerun()
 
 if st.session_state.kamera_bilder:
     st.write(f"Gespeicherte Fotos: {len(st.session_state.kamera_bilder)}")
@@ -43,14 +49,17 @@ Gib AUSSCHLIESSLICH ein JSON-Objekt zurück, ohne Markdown-Codeblock, ohne Erkl�
   "name": "Name der ausführenden Person, falls erkennbar, sonst leer lassen",
   "zeitraum": "z.B. 29. Juni - 03. Juli 2026",
   "eintraege": [
-    {"datum": "Mo, 29.06.", "stunden": 4.75, "taetigkeiten": "Kurzbeschreibung der Tätigkeiten mit Ort/Adresse"}
+    {"datum": "Mo, 29.06.", "stunden": 4.75, "taetigkeiten": "Kurzbeschreibung aller Tätigkeiten des Tages inkl. Ort/Adresse"}
+  ],
+  "einzelauftraege": [
+    {"datum": "29.06.2026", "objektadresse": "Straße, Ort (Ansprechpartner falls genannt)", "stunden": 2.5, "taetigkeiten": "Kurzbeschreibung der konkreten Tätigkeit"}
   ]
 }
 
 Regeln:
-- Ein Eintrag pro Kalendertag mit Notizen.
+- "eintraege": ein Eintrag pro Kalendertag mit Notizen, für die Wochenübersicht. Enthält ALLE Tätigkeiten des Tages (auch Müllentsorgung).
+- "einzelauftraege": ein eigener Eintrag für JEDE Tätigkeit, die KEINE Müllentsorgung/Mülltonnen-Bereitstellung ist (z.B. Montage, Reparatur, Wartung, Rauchmelder, Türen einstellen etc.). Reine Müllentsorgungs-Tätigkeiten NICHT in "einzelauftraege" aufnehmen.
 - "stunden" als Dezimalzahl (Komma im Text als Punkt interpretieren, z.B. "2,5 Std" -> 2.5).
-- "taetigkeiten" fasst alle Notizen des Tages knapp zusammen, inkl. Ort/Adresse falls vorhanden.
 - Wenn ein Wert nicht lesbar ist, sinnvoll leer lassen, aber das JSON-Format nicht brechen.
 """
 
@@ -62,35 +71,51 @@ def parse_json_antwort(text):
     return json.loads(text)
 
 
-def erstelle_pdf(daten):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4,
-                             topMargin=2*cm, bottomMargin=2*cm,
-                             leftMargin=2*cm, rightMargin=2*cm)
+def _stile():
     styles = getSampleStyleSheet()
-    titel_stil = ParagraphStyle('Titel', parent=styles['Title'], fontSize=18, spaceAfter=4)
-    sub_stil = ParagraphStyle('Sub', parent=styles['Normal'], fontSize=10,
-                               textColor=colors.grey, alignment=1, spaceAfter=16)
-    zelle_stil = ParagraphStyle('Zelle', parent=styles['Normal'], fontSize=9, leading=12)
+    return {
+        'titel': ParagraphStyle('Titel', parent=styles['Title'], fontSize=18, spaceAfter=4),
+        'sub': ParagraphStyle('Sub', parent=styles['Normal'], fontSize=10,
+                               textColor=colors.grey, alignment=1, spaceAfter=16),
+        'zelle': ParagraphStyle('Zelle', parent=styles['Normal'], fontSize=9, leading=12),
+        'klein': ParagraphStyle('klein', fontSize=8, textColor=colors.grey),
+        'label': ParagraphStyle('label', parent=styles['Normal'], fontSize=10, leading=16),
+    }
 
-    story = []
-    story.append(Paragraph("Arbeitszeitnachweis / Wochenübersicht", titel_stil))
+
+def _unterschrift_block(name, stile):
+    daten = [[
+        Paragraph(f"Kranenburg, den {date.today().strftime('%d.%m.%Y')}", stile['zelle']),
+        Paragraph("", stile['zelle']),
+    ], [
+        Paragraph("Ort, Datum", stile['klein']),
+        Paragraph(f"Unterschrift ({name})", stile['klein']),
+    ]]
+    tabelle = Table(daten, colWidths=[8.5*cm, 8.5*cm])
+    tabelle.setStyle(TableStyle([
+        ('LINEABOVE', (0, 1), (0, 1), 0.5, colors.black),
+        ('LINEABOVE', (1, 1), (1, 1), 0.5, colors.black),
+        ('TOPPADDING', (0, 1), (-1, 1), 4),
+    ]))
+    return tabelle
+
+
+def _wochenuebersicht_story(daten, stile):
+    story = [Paragraph("Arbeitszeitnachweis / Wochenübersicht", stile['titel'])]
     if daten.get("zeitraum"):
-        story.append(Paragraph(f"Zeitraum: {daten['zeitraum']}", sub_stil))
+        story.append(Paragraph(f"Zeitraum: {daten['zeitraum']}", stile['sub']))
     else:
         story.append(Spacer(1, 12))
 
-    kopf_daten = [[
-        Paragraph(f"<b>Name:</b> {daten.get('name', '')}", zelle_stil),
-        Paragraph("<b>Vereinbarte Wochenstunden:</b>", zelle_stil)
-    ]]
-    kopf_tabelle = Table(kopf_daten, colWidths=[10*cm, 7*cm])
-    kopf_tabelle.setStyle(TableStyle([
+    kopf = Table([[Paragraph(f"<b>Name:</b> {daten.get('name', '')}", stile['zelle']),
+                   Paragraph("<b>Vereinbarte Wochenstunden:</b>", stile['zelle'])]],
+                 colWidths=[10*cm, 7*cm])
+    kopf.setStyle(TableStyle([
         ('BOX', (0, 0), (-1, -1), 0.5, colors.grey),
         ('BACKGROUND', (0, 0), (-1, -1), colors.whitesmoke),
         ('PADDING', (0, 0), (-1, -1), 8),
     ]))
-    story.append(kopf_tabelle)
+    story.append(kopf)
     story.append(Spacer(1, 16))
 
     tabellen_daten = [["Datum", "Stunden", "Tätigkeiten"]]
@@ -102,9 +127,9 @@ def erstelle_pdf(daten):
         except (TypeError, ValueError):
             pass
         tabellen_daten.append([
-            Paragraph(str(e.get("datum", "")), zelle_stil),
-            Paragraph(str(stunden), zelle_stil),
-            Paragraph(str(e.get("taetigkeiten", "")), zelle_stil),
+            Paragraph(str(e.get("datum", "")), stile['zelle']),
+            Paragraph(str(stunden), stile['zelle']),
+            Paragraph(str(e.get("taetigkeiten", "")), stile['zelle']),
         ])
     tabellen_daten.append(["", "Gesamtsumme:", f"{gesamt:.2f}".replace(".", ",")])
 
@@ -121,21 +146,58 @@ def erstelle_pdf(daten):
     ]))
     story.append(tabelle)
     story.append(Spacer(1, 40))
+    story.append(_unterschrift_block(daten.get('name', ''), stile))
+    return story
 
-    unterschrift_daten = [[
-        Paragraph(f"Kranenburg, den {date.today().strftime('%d.%m.%Y')}", zelle_stil),
-        Paragraph("", zelle_stil),
-    ], [
-        Paragraph("Ort, Datum", ParagraphStyle('klein', fontSize=8, textColor=colors.grey)),
-        Paragraph(f"Unterschrift ({daten.get('name', '')})", ParagraphStyle('klein', fontSize=8, textColor=colors.grey)),
-    ]]
-    unterschrift_tabelle = Table(unterschrift_daten, colWidths=[8.5*cm, 8.5*cm])
-    unterschrift_tabelle.setStyle(TableStyle([
-        ('LINEABOVE', (0, 1), (0, 1), 0.5, colors.black),
-        ('LINEABOVE', (1, 1), (1, 1), 0.5, colors.black),
-        ('TOPPADDING', (0, 1), (-1, 1), 4),
+
+def _einzelnachweis_story(auftrag, name, stile):
+    story = [Paragraph("Arbeitsbericht / Leistungsnachweis", stile['titel']), Spacer(1, 16)]
+
+    kopf_daten = [
+        [Paragraph("<b>Ausführender:</b>", stile['label']), Paragraph(name, stile['label'])],
+        [Paragraph("<b>Objektadresse:</b>", stile['label']), Paragraph(auftrag.get('objektadresse', ''), stile['label'])],
+        [Paragraph("<b>Datum der Ausführung:</b>", stile['label']), Paragraph(auftrag.get('datum', ''), stile['label'])],
+        [Paragraph("<b>Arbeitszeit (Dauer):</b>", stile['label']), Paragraph(f"{auftrag.get('stunden', '')} Stunden", stile['label'])],
+    ]
+    kopf = Table(kopf_daten, colWidths=[5*cm, 12*cm])
+    kopf.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.whitesmoke),
+        ('PADDING', (0, 0), (-1, -1), 8),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
     ]))
-    story.append(unterschrift_tabelle)
+    story.append(kopf)
+    story.append(Spacer(1, 16))
+
+    taetigkeit_tabelle = Table([
+        [Paragraph("<b>Durchgeführte Tätigkeiten</b>", stile['label'])],
+        [Paragraph(auftrag.get('taetigkeiten', ''), stile['zelle'])],
+    ], colWidths=[17*cm])
+    taetigkeit_tabelle.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('LINEBELOW', (0, 0), (0, 0), 0.5, colors.grey),
+        ('PADDING', (0, 0), (-1, -1), 10),
+        ('MINHEIGHT', (0, 1), (0, 1), 3*cm),
+    ]))
+    story.append(taetigkeit_tabelle)
+    story.append(Spacer(1, 40))
+    story.append(_unterschrift_block(name, stile))
+    return story
+
+
+def erstelle_pdf(daten):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                             topMargin=2*cm, bottomMargin=2*cm,
+                             leftMargin=2*cm, rightMargin=2*cm)
+    stile = _stile()
+    name = daten.get('name', '')
+
+    story = _wochenuebersicht_story(daten, stile)
+
+    for auftrag in daten.get("einzelauftraege", []):
+        story.append(PageBreak())
+        story.extend(_einzelnachweis_story(auftrag, name, stile))
 
     doc.build(story)
     buffer.seek(0)
@@ -177,7 +239,8 @@ if st.button("📄 Nachweise generieren"):
 
                     if daten:
                         st.session_state.pdf_bytes = erstelle_pdf(daten)
-                        st.success("PDF erstellt!")
+                        anzahl_einzeln = len(daten.get("einzelauftraege", []))
+                        st.success(f"PDF erstellt! (Wochenübersicht + {anzahl_einzeln} Einzelnachweis(e))")
 
             except Exception as e:
                 st.error(f"Fehler beim Verarbeiten der Bilder: {e}")
