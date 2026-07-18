@@ -16,6 +16,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 st.set_page_config(page_title="Arbeitszeit & Berichte", page_icon="📝")
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
+# Fest hinterlegter Name, da er im Kalenderfoto meist nicht steht und Gemini
+# ihn sonst nicht zuverlässig erkennt. Hier bei Bedarf anpassen.
+NAME = "Dirk Stunnenberg-Verhoeven"
+
 if 'kamera_bilder' not in st.session_state:
     st.session_state.kamera_bilder = []
 if 'pdf_bytes' not in st.session_state:
@@ -107,7 +111,7 @@ def _wochenuebersicht_story(daten, stile):
     else:
         story.append(Spacer(1, 12))
 
-    kopf = Table([[Paragraph(f"<b>Name:</b> {daten.get('name', '')}", stile['zelle']),
+    kopf = Table([[Paragraph(f"<b>Name:</b> {NAME}", stile['zelle']),
                    Paragraph("<b>Vereinbarte Wochenstunden:</b>", stile['zelle'])]],
                  colWidths=[10*cm, 7*cm])
     kopf.setStyle(TableStyle([
@@ -131,7 +135,7 @@ def _wochenuebersicht_story(daten, stile):
             Paragraph(str(stunden), stile['zelle']),
             Paragraph(str(e.get("taetigkeiten", "")), stile['zelle']),
         ])
-    tabellen_daten.append(["", "Gesamtsumme:", f"{gesamt:.2f}".replace(".", ",")])
+    tabellen_daten.append(["", "Gesamt:", f"{gesamt:.2f}".replace(".", ",")])
 
     tabelle = Table(tabellen_daten, colWidths=[2.5*cm, 2.5*cm, 12*cm], repeatRows=1)
     tabelle.setStyle(TableStyle([
@@ -146,7 +150,7 @@ def _wochenuebersicht_story(daten, stile):
     ]))
     story.append(tabelle)
     story.append(Spacer(1, 40))
-    story.append(_unterschrift_block(daten.get('name', ''), stile))
+    story.append(_unterschrift_block(NAME, stile))
     return story
 
 
@@ -191,13 +195,12 @@ def erstelle_pdf(daten):
                              topMargin=2*cm, bottomMargin=2*cm,
                              leftMargin=2*cm, rightMargin=2*cm)
     stile = _stile()
-    name = daten.get('name', '')
 
     story = _wochenuebersicht_story(daten, stile)
 
     for auftrag in daten.get("einzelauftraege", []):
         story.append(PageBreak())
-        story.extend(_einzelnachweis_story(auftrag, name, stile))
+        story.extend(_einzelnachweis_story(auftrag, NAME, stile))
 
     doc.build(story)
     buffer.seek(0)
