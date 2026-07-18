@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import google.generativeai as genai
 from PIL import Image
 import json
@@ -16,9 +17,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 st.set_page_config(page_title="Arbeitszeit & Berichte", page_icon="📝")
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# Fest hinterlegter Name, da er im Kalenderfoto meist nicht steht und Gemini
-# ihn sonst nicht zuverlässig erkennt. Hier bei Bedarf anpassen.
+# Fest hinterlegte Werte, da sie im Kalenderfoto nicht stehen und Gemini sie
+# sonst nicht zuverlässig erkennt. Hier bei Bedarf anpassen.
 NAME = "Dirk Stunnenberg-Verhoeven"
+WOCHENSTUNDEN = "20"
 
 if 'kamera_bilder' not in st.session_state:
     st.session_state.kamera_bilder = []
@@ -29,10 +31,36 @@ if 'cam_key' not in st.session_state:
 
 st.title("📝 Wochenübersicht")
 
-kamera_foto = st.camera_input("Kalender abfotografieren", key=f"cam_{st.session_state.cam_key}")
+kamera_foto = st.file_uploader(
+    "Kalender abfotografieren",
+    type=["jpg", "jpeg", "png"],
+    key=f"cam_{st.session_state.cam_key}",
+)
 
-# Foto wird sofort nach der Aufnahme gespeichert, das Kamera-Feld wird danach
-# durch einen neuen Widget-Key automatisch geleert (kein Klick nötig).
+# Erzwingt, dass beim Antippen des Feldes direkt die native Kamera-App mit
+# Rückkamera geöffnet wird (statt des eingebetteten Videostreams, der auf
+# manchen Handys zwischen Linsen/Frontkamera hin- und herspringt).
+components.html(
+    """
+    <script>
+    function setzeRueckkamera() {
+        const doc = window.parent.document;
+        doc.querySelectorAll('input[type="file"]').forEach(function (input) {
+            input.setAttribute('accept', 'image/*');
+            input.setAttribute('capture', 'environment');
+        });
+    }
+    setzeRueckkamera();
+    new MutationObserver(setzeRueckkamera).observe(window.parent.document.body, {
+        childList: true, subtree: true
+    });
+    </script>
+    """,
+    height=0,
+)
+
+# Foto wird sofort nach der Aufnahme gespeichert, das Feld wird danach durch
+# einen neuen Widget-Key automatisch geleert (kein Klick nötig).
 if kamera_foto is not None:
     st.session_state.kamera_bilder.append(kamera_foto)
     st.session_state.cam_key += 1
@@ -112,7 +140,7 @@ def _wochenuebersicht_story(daten, stile):
         story.append(Spacer(1, 12))
 
     kopf = Table([[Paragraph(f"<b>Name:</b> {NAME}", stile['zelle']),
-                   Paragraph("<b>Vereinbarte Wochenstunden:</b>", stile['zelle'])]],
+                   Paragraph(f"<b>Vereinbarte Wochenstunden:</b> {WOCHENSTUNDEN}", stile['zelle'])]],
                  colWidths=[10*cm, 7*cm])
     kopf.setStyle(TableStyle([
         ('BOX', (0, 0), (-1, -1), 0.5, colors.grey),
